@@ -1,0 +1,39 @@
+pipeline {
+  agent { label "docker-agent1" }   // make sure this matches your Jenkins agent label
+
+  environment {
+    IMAGE = "nelldocker247/firstjenkins"          // Docker Hub repo
+    DOCKERHUB_CREDS = "dockerhub-credentials-id"  // Jenkins credentials ID
+  }
+
+  stages {
+    stage("Checkout") {
+      steps { checkout scm }   // Jenkins pulls this GitHub repo
+    }
+
+    stage("Build & Push") {
+      steps {
+        script { env.SHORT_SHA = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim() }
+
+        withCredentials([usernamePassword(credentialsId: "${DOCKERHUB_CREDS}",
+                                          usernameVariable: "U",
+                                          passwordVariable: "P")]) {
+          sh '''
+            echo "$P" | docker login -u "$U" --password-stdin
+            docker build -t ${IMAGE}:${SHORT_SHA} .
+            docker push ${IMAGE}:${SHORT_SHA}
+
+            if [ "${BRANCH_NAME}" = "main" ]; then
+              docker tag ${IMAGE}:${SHORT_SHA} ${IMAGE}:latest
+              docker push ${IMAGE}:latest
+            fi
+
+            docker logout || true
+          '''
+        }
+      }
+    }
+  }
+
+  post { always { sh 'docker image prune -f || true' } }
+}
